@@ -4,6 +4,9 @@
 إعدادات متقدمة لتحقيق أقصى سرعة ممكنة
 """
 
+import sys
+import os
+sys.path.append(os.path.dirname(__file__))
 from enhanced_shamela_scraper import PerformanceConfig
 
 class UltraSpeedConfig(PerformanceConfig):

@@ -270,25 +270,25 @@ class PerformanceSimulation:
         # مواصفات كتب متنوعة للاختبار
         test_books = [
             {
-                'id': 'BK000001',
-                'title': 'كتاب صغير - اختبار سريع',
-                'pages': 50,
+                'id': 'BK000043',
+                'title': 'كتاب رقم 43 - اختبار صغير',
+                'pages': 30,
                 'complexity': 'low',
                 'has_images': False
             },
             {
-                'id': 'BK000028',
-                'title': 'صحيح البخاري - كتاب متوسط',
-                'pages': 500,
+                'id': 'BK000043',
+                'title': 'كتاب رقم 43 - اختبار متوسط',
+                'pages': 100,
                 'complexity': 'medium',
                 'has_images': False
             },
             {
-                'id': 'BK001000',
-                'title': 'موسوعة كبيرة - اختبار التحمل',
-                'pages': 2000,
-                'complexity': 'high',
-                'has_images': True
+                'id': 'BK000043',
+                'title': 'كتاب رقم 43 - اختبار كامل',
+                'pages': 200,
+                'complexity': 'medium',
+                'has_images': False
             }
         ]
         
@@ -372,7 +372,7 @@ class PerformanceSimulation:
         print("=" * 80)
         
         # جدول مقارنة لجميع الكتب
-        print(f"\n{'التحسين':<25} {'كتاب صغير':<15} {'كتاب متوسط':<15} {'موسوعة كبيرة':<15}")
+        print(f"\n{'التحسين':<25} {'30 صفحة':<15} {'100 صفحة':<15} {'200 صفحة':<15}")
         print("-" * 75)
         
         opt_names = {
@@ -383,24 +383,29 @@ class PerformanceSimulation:
             'full_optimizations': 'تحسينات كاملة'
         }
         
+        book_ids = list(results.keys())
+        
         for opt_key in ['baseline'] + list(self.optimizations.keys()):
             row_data = []
             
-            for book_id in ['BK000001', 'BK000028', 'BK001000']:
+            for book_id in book_ids:
                 if book_id in results and opt_key in results[book_id]['performance']:
                     speed = results[book_id]['performance'][opt_key]['pages_per_second']
                     row_data.append(f"{speed:.1f} ص/ث")
                 else:
                     row_data.append("N/A")
             
-            print(f"{opt_names.get(opt_key, opt_key):<25} "
-                  f"{row_data[0]:<15} {row_data[1]:<15} {row_data[2]:<15}")
+            if len(row_data) >= 3:
+                print(f"{opt_names.get(opt_key, opt_key):<25} "
+                      f"{row_data[0]:<15} {row_data[1]:<15} {row_data[2]:<15}")
+            else:
+                print(f"{opt_names.get(opt_key, opt_key):<25} {' '.join(row_data)}")
         
         # أفضل النتائج
         print(f"\n🏆 أفضل النتائج:")
         
-        for i, book_id in enumerate(['BK000001', 'BK000028', 'BK001000']):
-            book_name = results[book_id]['book_info']['title'].split(' - ')[0]
+        for i, book_id in enumerate(book_ids):
+            book_name = results[book_id]['book_info']['title']
             
             best_opt = max(results[book_id]['performance'].items(), 
                           key=lambda x: x[1]['pages_per_second'])

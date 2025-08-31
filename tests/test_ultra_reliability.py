@@ -8,6 +8,9 @@ import time
 import json
 import logging
 from pathlib import Path
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'core'))
 from ultra_reliability_system import UltraReliableSession, create_ultra_reliable_config
 
 # إعداد التسجيل

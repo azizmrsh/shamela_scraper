@@ -36,6 +36,9 @@ except ImportError:
     print("pip install mysql-connector-python")
     exit(1)
 
+import sys
+import os
+sys.path.append(os.path.dirname(__file__))
 from enhanced_shamela_scraper import (
     Book, Author, Publisher, BookSection, Volume, 
     Chapter, PageContent, VolumeLink, PerformanceConfig

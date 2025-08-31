@@ -24,6 +24,9 @@ from urllib.parse import urljoin, urlparse
 import re
 
 # استيراد النظام فائق الموثوقية
+import sys
+import os
+sys.path.append(os.path.dirname(__file__))
 from ultra_reliability_system import (
     UltraReliableSession, 
     ReliabilityConfig, 

@@ -4,6 +4,9 @@
 """
 
 import time
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'core'))
 from enhanced_shamela_scraper import scrape_enhanced_book
 from ultra_speed_config import get_optimal_config_for_book_size
 
@@ -99,8 +102,8 @@ if __name__ == "__main__":
     # اختبار مع كتاب متوسط الحجم
     print("🚀 بدء اختبار شامل للسرعة")
     
-    # الكتاب 12106 - كتاب صغير للاختبار السريع
-    small_results = benchmark_book_speed("12106", [10, 20, 30], "موقف الإمام والمأموم")
+    # الكتاب 43 - كتاب للاختبار
+    small_results = benchmark_book_speed("43", [10, 20, 30], "كتاب رقم 43")
     print_summary_table(small_results, [10, 20, 30])
     
     # تقدير للكتب الكبيرة
