@@ -120,7 +120,7 @@ class PerformanceConfig:
     
     # تحسينات الشبكة
     enable_http2: bool = True
-    enable_compression: bool = True
+    enable_compression: bool = False  # تم تعطيل ضغط ملفات JSON
     enable_keepalive: bool = True
     dns_cache_ttl: int = 300
     

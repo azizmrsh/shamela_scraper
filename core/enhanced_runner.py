@@ -73,6 +73,7 @@ def extract_book_full(book_id: str, max_pages: int = None, output_dir: str = Non
             config.batch_size = 3000  # دفعات أكبر
             config.request_delay = 0.05  # تأخير قليل لتجنب الحظر
             config.connection_pool_size = 24  # تجمع اتصالات أكبر
+            config.enable_compression = False  # عدم ضغط ملفات JSON
         
     print(f"🔍 بدء استخراج الكتاب: {book_id}")
     print(f"⚡ إعدادات السرعة الفائقة: workers={config.max_workers}, delay={config.request_delay}s, lxml={config.use_lxml}")
@@ -222,12 +223,61 @@ def save_to_database(json_path: str, db_config: dict, config: PerformanceConfig 
             'error': str(e)
         }
 
+def check_book_in_database(book_id: str, db_config: dict) -> dict:
+    """
+    التحقق مما إذا كان الكتاب موجوداً بالفعل في قاعدة البيانات
+    
+    Args:
+        book_id: معرف الكتاب في الشاملة
+        db_config: إعدادات قاعدة البيانات
+        
+    Returns:
+        dict: نتيجة التحقق مع مفتاح exists يشير إلى وجود الكتاب
+    """
+    try:
+        # إضافة الـ BK إذا لم تكن موجودة
+        shamela_id = book_id if book_id.upper().startswith('BK') else f"BK{book_id}"
+        
+        with EnhancedShamelaDatabaseManager(db_config) as db:
+            exists = db.check_book_exists(shamela_id)
+        
+        return {
+            'success': True,
+            'exists': exists,
+            'book_id': book_id,
+            'shamela_id': shamela_id
+        }
+    except Exception as e:
+        logger.error(f"فشل في التحقق من وجود الكتاب {book_id}: {e}")
+        return {
+            'success': False,
+            'exists': False,
+            'book_id': book_id,
+            'error': str(e)
+        }
+
 def extract_and_save_book(book_id: str, max_pages: int = None, 
                          db_config: dict = None, output_dir: str = None) -> dict:
     """
     استخراج كتاب وحفظه في قاعدة البيانات
     """
     print_header()
+    
+    # التحقق من وجود الكتاب في قاعدة البيانات أولاً
+    if db_config:
+        check_result = check_book_in_database(book_id, db_config)
+        
+        if check_result['success'] and check_result['exists']:
+            print(f"⚠️ الكتاب {book_id} موجود بالفعل في قاعدة البيانات")
+            print("⏭️ تخطي استخراج الكتاب...")
+            print(f"✅ تم تخطي استخراج الكتاب {book_id} - موجود مسبقًا في قاعدة البيانات")
+            
+            return {
+                'success': True,
+                'already_exists': True,
+                'book_id': book_id,
+                'message': f"الكتاب {book_id} موجود بالفعل في قاعدة البيانات"
+            }
     
     # 1. استخراج الكتاب
     extraction_result = extract_book_full(book_id, max_pages, output_dir)
@@ -394,10 +444,17 @@ def main():
     
     # إعدادات قاعدة البيانات
     db_config = None
-    if any([args.db_host, args.db_user, args.db_password, args.db_name]):
-        if not args.db_password:
-            import getpass
-            args.db_password = getpass.getpass("كلمة مرور قاعدة البيانات: ")
+    if any([args.db_host, args.db_user, args.db_name]):
+        # طلب كلمة المرور فقط إذا لم يتم تمريرها نهائياً ولم يتم تعيين متغير البيئة
+        if args.db_password is None:
+            # تحقق من وجود متغير البيئة لتجنب طلب كلمة المرور
+            password_from_env = os.environ.get('DB_PASSWORD_PROVIDED')
+            if password_from_env and password_from_env.lower() == 'true':
+                # استخدام كلمة مرور فارغة إذا تم تحديد أنها متوفرة من البيئة
+                args.db_password = ""
+            else:
+                import getpass
+                args.db_password = getpass.getpass("كلمة مرور قاعدة البيانات: ")
         
         db_config = {
             'host': args.db_host,

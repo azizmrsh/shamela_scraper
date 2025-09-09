@@ -33,6 +33,7 @@ class UltraSpeedConfig(PerformanceConfig):
         self.memory_optimization = True
         self.compress_responses = True
         self.clear_cache_interval = 1000
+        self.enable_compression = False  # عدم ضغط ملفات JSON
         
         # 🎯 تحسينات ذكية
         self.adaptive_delay = True  # تأخير متكيف

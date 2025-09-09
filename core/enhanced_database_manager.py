@@ -187,6 +187,25 @@ class EnhancedShamelaDatabaseManager:
                 logger.warning(f"فشل في الحصول على اتصال من التجمع: {e}")
                 return None
         return None
+        
+    def check_book_exists(self, shamela_id: str) -> bool:
+        """
+        التحقق من وجود كتاب في قاعدة البيانات بناءً على معرف الشاملة
+        
+        Args:
+            shamela_id: معرف الكتاب في الشاملة (مثل BK12345)
+            
+        Returns:
+            bool: True إذا كان الكتاب موجوداً، False إذا لم يكن موجوداً
+        """
+        try:
+            query = f"SELECT id FROM {self.tables['books']} WHERE shamela_id = %s"
+            self.cursor.execute(query, (shamela_id,))
+            result = self.cursor.fetchone()
+            return result is not None
+        except Error as e:
+            logger.error(f"خطأ في التحقق من وجود الكتاب: {e}")
+            return False
     
     def execute_parallel_batch(self, operation_func, data_batches: List[List], max_workers: int = None) -> List[Any]:
         """تنفيذ عمليات مجمعة بشكل متوازي"""
@@ -720,6 +739,24 @@ class EnhancedShamelaDatabaseManager:
             except (ValueError, AttributeError):
                 edition_data_int = None
         
+        # استخراج رقم الطبعة من النص أو استخدام edition_number المحدد
+        edition_number_final = None
+        if hasattr(book, 'edition_number') and book.edition_number:
+            try:
+                edition_number_final = int(book.edition_number)
+            except (ValueError, TypeError):
+                pass
+        
+        # إذا لم يكن هناك رقم طبعة محدد، حاول استخراجه من نص الطبعة
+        if not edition_number_final and hasattr(book, 'edition') and book.edition:
+            try:
+                import re
+                numbers = re.findall(r'\d+', str(book.edition))
+                if numbers:
+                    edition_number_final = int(numbers[0])
+            except (ValueError, TypeError):
+                pass
+        
         if result:
             book_id = result[0]['id']
             # تحديث الكتاب الموجود
@@ -732,7 +769,7 @@ class EnhancedShamelaDatabaseManager:
             """
             self.cursor.execute(update_query, (
                 book.title, book.slug, publisher_id, book_section_id,
-                book.edition, book.edition_number, edition_data_int, book.page_count, book.volume_count,
+                None, edition_number_final, edition_data_int, book.page_count, book.volume_count,
                 book.description, book.source_url, book.has_original_pagination, 'published', datetime.now(), book_id
             ))
             logger.info(f"تم تحديث الكتاب: {book.title}")
@@ -747,7 +784,7 @@ class EnhancedShamelaDatabaseManager:
             """
             book_id = self.execute_insert(insert_query, (
                 book.title, book.slug, book.shamela_id, publisher_id, book_section_id,
-                book.edition, book.edition_number, edition_data_int, book.page_count, book.volume_count,
+                None, edition_number_final, edition_data_int, book.page_count, book.volume_count,
                 book.description, book.source_url, book.has_original_pagination, 'published', 'public', 
                 datetime.now(), datetime.now()
             ))
