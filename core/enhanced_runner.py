@@ -235,8 +235,8 @@ def check_book_in_database(book_id: str, db_config: dict) -> dict:
         dict: نتيجة التحقق مع مفتاح exists يشير إلى وجود الكتاب
     """
     try:
-        # إضافة الـ BK إذا لم تكن موجودة
-        shamela_id = book_id if book_id.upper().startswith('BK') else f"BK{book_id}"
+        # استخدام معرف الكتاب كما هو بدون إضافة BK
+        shamela_id = book_id.strip()
         
         with EnhancedShamelaDatabaseManager(db_config) as db:
             exists = db.check_book_exists(shamela_id)
@@ -260,26 +260,12 @@ def extract_and_save_book(book_id: str, max_pages: int = None,
                          db_config: dict = None, output_dir: str = None) -> dict:
     """
     استخراج كتاب وحفظه في قاعدة البيانات
+    ملاحظة: هذه الدالة تستخرج الكتاب مباشرة دون التحقق من وجوده مسبقاً.
+    للتحقق من وجود الكتاب، استخدم الأمر check أولاً.
     """
     print_header()
     
-    # التحقق من وجود الكتاب في قاعدة البيانات أولاً
-    if db_config:
-        check_result = check_book_in_database(book_id, db_config)
-        
-        if check_result['success'] and check_result['exists']:
-            print(f"⚠️ الكتاب {book_id} موجود بالفعل في قاعدة البيانات")
-            print("⏭️ تخطي استخراج الكتاب...")
-            print(f"✅ تم تخطي استخراج الكتاب {book_id} - موجود مسبقًا في قاعدة البيانات")
-            
-            return {
-                'success': True,
-                'already_exists': True,
-                'book_id': book_id,
-                'message': f"الكتاب {book_id} موجود بالفعل في قاعدة البيانات"
-            }
-    
-    # 1. استخراج الكتاب
+    # استخراج الكتاب
     extraction_result = extract_book_full(book_id, max_pages, output_dir)
     
     if not extraction_result['success']:
@@ -287,7 +273,7 @@ def extract_and_save_book(book_id: str, max_pages: int = None,
     
     print_separator()
     
-    # 2. حفظ في قاعدة البيانات إذا تم توفير الإعدادات
+    # حفظ في قاعدة البيانات إذا تم توفير الإعدادات
     if db_config:
         db_result = save_to_database(extraction_result['output_path'], db_config)
         
@@ -406,6 +392,9 @@ def main():
 
 5. عرض إحصائيات كتاب من قاعدة البيانات:
    python enhanced_runner.py stats 123 --db-host localhost --db-user root --db-password secret --db-name bms
+
+6. التحقق من وجود كتاب في قاعدة البيانات:
+   python enhanced_runner.py check 12106 --db-host localhost --db-user root --db-password secret --db-name bms
         """
     )
     
@@ -428,8 +417,12 @@ def main():
     stats_parser = subparsers.add_parser('stats', help='عرض إحصائيات كتاب من قاعدة البيانات')
     stats_parser.add_argument('book_id', type=int, help='معرف الكتاب في قاعدة البيانات')
     
+    # أمر التحقق من وجود الكتاب
+    check_parser = subparsers.add_parser('check', help='التحقق من وجود كتاب في قاعدة البيانات')
+    check_parser.add_argument('book_id', help='معرف الكتاب في المكتبة الشاملة')
+    
     # إعدادات قاعدة البيانات (مشتركة)
-    for subparser in [extract_parser, save_parser, tables_parser, stats_parser]:
+    for subparser in [extract_parser, save_parser, tables_parser, stats_parser, check_parser]:
         subparser.add_argument('--db-host', default='localhost', help='عنوان قاعدة البيانات')
         subparser.add_argument('--db-port', type=int, default=3306, help='منفذ قاعدة البيانات')
         subparser.add_argument('--db-user', default='root', help='اسم المستخدم')
@@ -508,6 +501,28 @@ def main():
             result = get_database_stats(args.book_id, db_config)
             
             if not result['success']:
+                sys.exit(1)
+        
+        elif args.command == 'check':
+            if not db_config:
+                print("❌ خطأ: يجب تحديد إعدادات قاعدة البيانات")
+                sys.exit(1)
+            
+            result = check_book_in_database(args.book_id, db_config)
+            
+            if not result['success']:
+                print(f"❌ خطأ في التحقق من الكتاب: {result.get('error', 'خطأ غير معروف')}")
+                sys.exit(1)
+            
+            if result['exists']:
+                print(f"✅ الكتاب {args.book_id} موجود في قاعدة البيانات")
+                print_separator()
+                print("🎉 تمت عملية التحقق بنجاح!")
+                # رمز الخروج 0 = الكتاب موجود
+                sys.exit(0)
+            else:
+                print(f"❌ الكتاب {args.book_id} غير موجود في قاعدة البيانات")
+                # رمز الخروج 1 = الكتاب غير موجود - لا نطبع رسالة نجاح
                 sys.exit(1)
         
         print_separator()

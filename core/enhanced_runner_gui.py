@@ -1859,11 +1859,57 @@ class EnhancedRunnerGUI:
     def extract_single_book_from_category(self, book_id):
         """استخراج كتاب واحد باستخدام enhanced_runner.py"""
         try:
-            # إعداد الأمر - نستخدم extract مع معاملات قاعدة البيانات لتفعيل الحفظ في قاعدة البيانات
-            # تعديل: نتأكد من إضافة خيار --db-name حتى لو كانت إعدادات قاعدة البيانات فارغة
-            # هذا سيضمن أن extract_and_save_book ستحفظ البيانات في قاعدة البيانات
+            # أولاً: التحقق من وجود الكتاب في قاعدة البيانات
+            check_command = [
+                sys.executable,
+                os.path.join(current_dir, "enhanced_runner.py"),
+                "check",
+                str(book_id),
+                "--db-host", self.db_host_var.get() or "localhost",
+                "--db-port", self.db_port_var.get() or "3306",
+                "--db-user", self.db_user_var.get() or "root",
+                "--db-name", self.db_name_var.get() or "bms",
+                "--db-password", self.db_password_var.get() or ""
+            ]
             
-            # تجهيز قائمة الأمر الأساسية
+            # إعداد متغيرات البيئة
+            env = os.environ.copy()
+            env['PYTHONIOENCODING'] = 'utf-8'
+            env['PYTHONUTF8'] = '1'
+            
+            # التحقق من وجود الكتاب
+            check_result = subprocess.run(
+                check_command,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                cwd=current_dir,
+                env=env,
+                timeout=30  # 30 ثانية كافية للتحقق
+            )
+            
+            # إذا كان الكتاب موجود (رمز الخروج = 0)، تخطي الاستخراج
+            if check_result.returncode == 0:
+                self.root.after(0, lambda: self.log_message(f"⏭️ كتاب {book_id}: موجود مسبقًا في قاعدة البيانات - تم تخطيه"))
+                
+                # تحديث حالة الكتاب في واجهة المستخدم
+                if hasattr(self, 'files_listbox') and hasattr(self, 'update_file_status_in_listbox'):
+                    try:
+                        # ابحث عن الكتاب في القائمة وحدّث حالته
+                        for i in range(self.files_listbox.size()):
+                            if str(book_id) in self.files_listbox.get(i):
+                                self.root.after(0, lambda idx=i: self.update_file_status_in_listbox(idx, "⏭️ موجود مسبقًا"))
+                                break
+                    except:
+                        pass
+                
+                return True  # اعتبر العملية نجحت لأننا تخطينا الكتاب الموجود
+            
+            # إذا لم يكن الكتاب موجود، استخرجه
+            self.root.after(0, lambda: self.log_message(f"🔍 كتاب {book_id}: غير موجود - بدء الاستخراج..."))
+            
+            # إعداد الأمر - نستخدم extract مع معاملات قاعدة البيانات لتفعيل الحفظ في قاعدة البيانات
             command = [
                 sys.executable,
                 os.path.join(current_dir, "enhanced_runner.py"),
@@ -1879,11 +1925,6 @@ class EnhancedRunnerGUI:
                 "--db-name", self.db_name_var.get() or "bms",
                 "--db-password", self.db_password_var.get() or ""
             ])
-            
-            # إعداد متغيرات البيئة
-            env = os.environ.copy()
-            env['PYTHONIOENCODING'] = 'utf-8'
-            env['PYTHONUTF8'] = '1'
             
             # تشغيل الأمر
             result = subprocess.run(
@@ -1901,20 +1942,6 @@ class EnhancedRunnerGUI:
             if result.stdout:
                 stdout = result.stdout.strip()
                 self.root.after(0, lambda: self.log_message(f"📖 كتاب {book_id}: {stdout}"))
-                
-                # التحقق من وجود رسالة أن الكتاب موجود بالفعل
-                if "موجود بالفعل في قاعدة البيانات" in stdout:
-                    self.root.after(0, lambda: self.log_message(f"🔄 كتاب {book_id}: موجود مسبقًا - تم تخطيه"))
-                    # تحديث حالة الكتاب في واجهة المستخدم
-                    if hasattr(self, 'files_listbox') and hasattr(self, 'update_file_status_in_listbox'):
-                        try:
-                            # ابحث عن الكتاب في القائمة وحدّث حالته
-                            for i in range(self.files_listbox.size()):
-                                if str(book_id) in self.files_listbox.get(i):
-                                    self.root.after(0, lambda idx=i: self.update_file_status_in_listbox(idx, "⏭️ موجود مسبقًا"))
-                                    break
-                        except:
-                            pass
             
             if result.stderr:
                 self.root.after(0, lambda: self.log_message(f"⚠️ كتاب {book_id}: {result.stderr.strip()}"))
