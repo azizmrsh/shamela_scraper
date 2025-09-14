@@ -215,6 +215,8 @@ class EnhancedRunnerGUI:
         self.category_mode_var = tk.StringVar(value="single")  # single أو multiple
         self.category_list_var = tk.StringVar()
         self.max_books_per_category_var = tk.StringVar()
+        self.category_operation_var = tk.StringVar(value="extract_only")  # extract_only أو extract_and_database
+        self.category_output_dir_var = tk.StringVar()  # مجلد الإخراج للأقسام
         
         # متغيرات قاعدة البيانات - تطابق السكريبت
         self.db_host_var = tk.StringVar(value="145.223.98.97")
@@ -607,6 +609,39 @@ class EnhancedRunnerGUI:
                                         command=self.check_multiple_categories)
         check_categories_btn.pack(side="left", padx=5)
         
+        # نوع العملية (استخراج فقط أو استخراج ورفع)
+        operation_frame = ttk.Frame(settings_frame)
+        operation_frame.pack(fill="x", pady=10)
+        
+        ttk.Label(operation_frame, text="نوع العملية:", style='Heading.TLabel').pack(side="left")
+        
+        extract_only_radio = ttk.Radiobutton(operation_frame, text="🔍 استخراج فقط", 
+                                           variable=self.category_operation_var, value="extract_only",
+                                           command=self.update_extraction_button_text)
+        extract_only_radio.pack(side="left", padx=(10, 5))
+        
+        extract_and_db_radio = ttk.Radiobutton(operation_frame, text="🔍📤 استخراج ورفع على قاعدة البيانات", 
+                                             variable=self.category_operation_var, value="extract_and_database",
+                                             command=self.update_extraction_button_text)
+        extract_and_db_radio.pack(side="left", padx=5)
+        
+        # مجلد الإخراج
+        output_frame = ttk.Frame(settings_frame)
+        output_frame.pack(fill="x", pady=10)
+        
+        ttk.Label(output_frame, text="مجلد الإخراج (اختياري):", style='Heading.TLabel').pack(side="left")
+        
+        output_entry_frame = ttk.Frame(output_frame)
+        output_entry_frame.pack(side="left", fill="x", expand=True, padx=(10, 0))
+        
+        category_output_entry = ttk.Entry(output_entry_frame, textvariable=self.category_output_dir_var, 
+                                         width=40, font=('Arial', 9))
+        category_output_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        
+        browse_output_btn = ttk.Button(output_entry_frame, text="📁 تصفح", 
+                                     command=self.browse_category_output_dir)
+        browse_output_btn.pack(side="left")
+        
         # إعدادات قاعدة البيانات للأقسام
         self.create_database_config(category_frame)
         
@@ -678,6 +713,9 @@ class EnhancedRunnerGUI:
         
         self.books_tree.pack(side="left", fill="both", expand=True)
         books_scrollbar.pack(side="right", fill="y")
+        
+        # تحديث نص زر الاستخراج عند الإنشاء
+        self.update_extraction_button_text()
         
     def create_shared_logs_section(self, parent):
         """إنشاء قسم السجلات المشترك"""
@@ -790,6 +828,158 @@ class EnhancedRunnerGUI:
         directory = filedialog.askdirectory(title="اختر مجلد الإخراج")
         if directory:
             self.output_dir_var.set(directory)
+    
+    def browse_category_output_dir(self):
+        """تصفح مجلد الإخراج للأقسام"""
+        directory = filedialog.askdirectory(title="اختر مجلد الإخراج للأقسام")
+        if directory:
+            self.category_output_dir_var.set(directory)
+    
+    def clean_category_name_for_folder(self, category_name):
+        """تنظيف اسم القسم ليصبح صالحاً كاسم مجلد"""
+        import re
+        # استبدال الأحرف غير المسموحة في أسماء المجلدات
+        invalid_chars = '<>:"/\\|?*'
+        cleaned = category_name
+        for char in invalid_chars:
+            cleaned = cleaned.replace(char, '_')
+        
+        # تنظيف المسافات المتعددة والنقاط
+        cleaned = re.sub(r'\s+', ' ', cleaned)  # استبدال المسافات المتعددة بمسافة واحدة
+        cleaned = re.sub(r'\.+', '.', cleaned)  # استبدال النقاط المتعددة بنقطة واحدة
+        cleaned = cleaned.strip('. ')  # إزالة النقاط والمسافات من البداية والنهاية
+        
+        # تحديد الطول الأقصى لاسم المجلد
+        max_length = 100
+        if len(cleaned) > max_length:
+            cleaned = cleaned[:max_length].rstrip('. ')
+        
+        # إذا كان النص فارغاً بعد التنظيف، استخدم اسم افتراضي
+        if not cleaned:
+            cleaned = "قسم_غير_محدد"
+            
+        return cleaned
+    
+    def clean_book_title_for_filename(self, title):
+        """تنظيف عنوان الكتاب ليصبح صالحاً كاسم ملف"""
+        if not title:
+            return "كتاب_غير_محدد"
+            
+        import re
+        # استبدال الأحرف غير المسموحة في أسماء الملفات
+        invalid_chars = '<>:"/\\|?*'
+        cleaned = title
+        for char in invalid_chars:
+            cleaned = cleaned.replace(char, '_')
+        
+        # تنظيف المسافات المتعددة والنقاط
+        cleaned = re.sub(r'\s+', ' ', cleaned)  # استبدال المسافات المتعددة بمسافة واحدة
+        cleaned = re.sub(r'\.+', '.', cleaned)  # استبدال النقاط المتعددة بنقطة واحدة
+        cleaned = cleaned.strip('. ')  # إزالة النقاط والمسافات من البداية والنهاية
+        
+        # تحديد الطول الأقصى لاسم الملف (مع ترك مساحة للامتداد)
+        max_length = 150
+        if len(cleaned) > max_length:
+            cleaned = cleaned[:max_length].rstrip('. ')
+        
+        # إذا كان النص فارغاً بعد التنظيف، استخدم اسم افتراضي
+        if not cleaned:
+            cleaned = "كتاب_غير_محدد"
+        
+        # استبدال المسافات بـ underscores للتوافق الأفضل مع أنظمة الملفات
+        cleaned = cleaned.replace(' ', '_')
+            
+        return cleaned
+    
+    def extract_book_title(self, book_id):
+        """استخراج عنوان الكتاب فقط دون محتوى ودون حفظ ملفات"""
+        try:
+            # إنشاء مجلد مؤقت في system temp لتجنب حفظ ملفات في مجلد المشروع
+            import tempfile
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_output_path = os.path.join(temp_dir, f"temp_book_{book_id}.json")
+                
+                # أمر لاستخراج معلومات الكتاب الأساسية فقط
+                # نزيل --no-content ونستخدم --max-pages 1 لضمان استخراج المعلومات الأساسية
+                command = [
+                    sys.executable,
+                    os.path.join(current_dir, "enhanced_shamela_scraper.py"),
+                    str(book_id),
+                    "--max-pages", "1",  # صفحة واحدة فقط للحصول على المعلومات الأساسية
+                    "--output", temp_output_path  # حفظ في المجلد المؤقت
+                ]
+                
+                # إعداد متغيرات البيئة
+                env = os.environ.copy()
+                env['PYTHONIOENCODING'] = 'utf-8'
+                env['PYTHONUTF8'] = '1'
+                
+                # تشغيل الأمر مع timeout قصير
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    cwd=current_dir,
+                    env=env,
+                    timeout=120  # زيادة الوقت إلى دقيقتين لضمان نجاح الاستخراج
+                )
+                
+                title = None
+                
+                if result.returncode == 0:
+                    # أولاً: محاولة قراءة الملف المؤقت (أكثر موثوقية)
+                    if os.path.exists(temp_output_path):
+                        import json
+                        try:
+                            with open(temp_output_path, 'r', encoding='utf-8') as f:
+                                book_data = json.load(f)
+                                title = book_data.get('title', '')
+                                if title:
+                                    self.root.after(0, lambda t=title: self.log_message(f"📚 تم استخراج العنوان من الملف: {t}"))
+                                    return title
+                        except Exception as e:
+                            self.root.after(0, lambda: self.log_message(f"⚠️ خطأ في قراءة ملف JSON المؤقت: {e}"))
+                    
+                    # ثانياً: البحث عن العنوان في المخرجات كاحتياطي
+                    output_lines = result.stdout.split('\n')
+                    for line in output_lines:
+                        # البحث عن العنوان بأشكال مختلفة
+                        if '📚 العنوان:' in line:
+                            # استخراج العنوان من السطر
+                            title = line.split('📚 العنوان:')[1].strip()
+                            if title:
+                                self.root.after(0, lambda t=title: self.log_message(f"📚 تم استخراج العنوان من المخرجات: {t}"))
+                                return title
+                        elif 'العنوان:' in line:
+                            # شكل آخر للعنوان
+                            title = line.split('العنوان:')[1].strip()
+                            if title:
+                                self.root.after(0, lambda t=title: self.log_message(f"📚 تم استخراج العنوان من المخرجات: {t}"))
+                                return title
+                
+                # إذا فشل كل شيء، سجل السبب
+                if result.returncode != 0:
+                    self.root.after(0, lambda: self.log_message(f"❌ فشل استخراج معلومات الكتاب {book_id}: رمز الخطأ {result.returncode}"))
+                    if result.stderr:
+                        self.root.after(0, lambda: self.log_message(f"🔍 تفاصيل الخطأ: {result.stderr.strip()[:200]}"))
+                else:
+                    self.root.after(0, lambda: self.log_message(f"⚠️ لم يتم العثور على عنوان في مخرجات الكتاب {book_id}"))
+                    # طباعة جزء من المخرجات للتشخيص
+                    if result.stdout:
+                        output_sample = result.stdout[:500]
+                        self.root.after(0, lambda: self.log_message(f"🔍 عينة من المخرجات: {output_sample}"))
+                
+                return None
+                # الملف المؤقت سيُحذف تلقائياً عند انتهاء with block
+            
+        except subprocess.TimeoutExpired:
+            self.root.after(0, lambda: self.log_message(f"⏰ انتهت مهلة استخراج عنوان الكتاب {book_id} (120 ثانية)"))
+            return None
+        except Exception as e:
+            self.root.after(0, lambda: self.log_message(f"❌ خطأ في استخراج عنوان الكتاب {book_id}: {str(e)}"))
+            return None
     
     def browse_json_file(self):
         """تصفح ملف JSON"""
@@ -1557,6 +1747,21 @@ class EnhancedRunnerGUI:
             except Exception as e:
                 messagebox.showerror("خطأ", f"فشل في حفظ السجل:\n{str(e)}")
     
+    def update_extraction_button_text(self):
+        """تحديث نص زر الاستخراج بناءً على نوع العملية المختار"""
+        try:
+            if hasattr(self, 'start_extraction_btn'):
+                operation_type = self.category_operation_var.get()
+                if operation_type == "extract_only":
+                    button_text = "🔍 بدء استخراج جميع الكتب"
+                else:  # extract_and_database
+                    button_text = "🔍📤 بدء استخراج الكتب ورفعها للقاعدة"
+                
+                self.start_extraction_btn.configure(text=button_text)
+        except Exception as e:
+            if hasattr(self, 'log_message'):
+                self.log_message(f"خطأ في تحديث نص الزر: {e}")
+    
     def log_message(self, message):
         """إضافة رسالة للسجل"""
         try:
@@ -1832,12 +2037,13 @@ class EnhancedRunnerGUI:
                                        self.add_book_to_list(bid, f"كتاب {bid}", "🔄 جاري الاستخراج"))
                         
                         # تشغيل enhanced_runner.py لاستخراج الكتاب
-                        success = self.extract_single_book_from_category(book_id)
+                        success, book_title = self.extract_single_book_from_category(book_id, category_name)
                         
-                        # تحديث حالة الكتاب
+                        # تحديث حالة الكتاب مع العنوان إن وُجد
+                        display_title = book_title if book_title else f"كتاب {book_id}"
                         status = "✅ تم بنجاح" if success else "❌ فشل"
-                        self.root.after(0, lambda bid=book_id, s=status: 
-                                       self.update_book_status(bid, f"كتاب {bid}", s))
+                        self.root.after(0, lambda bid=book_id, title=display_title, s=status: 
+                                       self.update_book_status(bid, title, s))
                         
                         if success:
                             total_books_extracted += 1
@@ -1856,75 +2062,151 @@ class EnhancedRunnerGUI:
             error_msg = f"خطأ في استخراج الأقسام: {str(e)}"
             self.root.after(0, lambda msg=error_msg: self.category_extraction_error(msg))
     
-    def extract_single_book_from_category(self, book_id):
+    def extract_single_book_from_category(self, book_id, category_name=None):
         """استخراج كتاب واحد باستخدام enhanced_runner.py"""
+        book_title = None  # متغير لحفظ عنوان الكتاب
+        
         try:
-            # أولاً: التحقق من وجود الكتاب في قاعدة البيانات
-            check_command = [
-                sys.executable,
-                os.path.join(current_dir, "enhanced_runner.py"),
-                "check",
-                str(book_id),
-                "--db-host", self.db_host_var.get() or "localhost",
-                "--db-port", self.db_port_var.get() or "3306",
-                "--db-user", self.db_user_var.get() or "root",
-                "--db-name", self.db_name_var.get() or "bms",
-                "--db-password", self.db_password_var.get() or ""
-            ]
+            # تحديد نوع العملية المختار
+            operation_type = self.category_operation_var.get()
+            
+            # تحديد مجلد الإخراج الأساسي
+            base_output_dir = self.category_output_dir_var.get().strip()
+            if not base_output_dir:
+                # استخدام مجلد افتراضي إذا لم يتم تحديد مجلد
+                base_output_dir = os.path.join(current_dir, "enhanced_books", "categories")
+            
+            # إنشاء مجلد القسم إذا كان اسم القسم متوفر
+            category_folder = None
+            if category_name and operation_type == "extract_only":
+                # تنظيف اسم القسم ليصبح صالح كاسم مجلد
+                clean_category_name = self.clean_category_name_for_folder(category_name)
+                category_folder = os.path.join(base_output_dir, clean_category_name)
+                
+                # إنشاء المجلد إذا لم يكن موجود
+                try:
+                    os.makedirs(category_folder, exist_ok=True)
+                    self.root.after(0, lambda: self.log_message(f"📁 تم إنشاء/التأكد من مجلد القسم: {category_folder}"))
+                except Exception as e:
+                    self.root.after(0, lambda: self.log_message(f"⚠️ تعذر إنشاء مجلد القسم، سيتم الحفظ في المجلد الافتراضي: {e}"))
+                    category_folder = base_output_dir
+            
+            # إذا كان الوضع استخراج ورفع، التحقق من وجود الكتاب في قاعدة البيانات أولاً
+            if operation_type == "extract_and_database":
+                # أولاً: التحقق من وجود الكتاب في قاعدة البيانات
+                check_command = [
+                    sys.executable,
+                    os.path.join(current_dir, "enhanced_runner.py"),
+                    "check",
+                    str(book_id),
+                    "--db-host", self.db_host_var.get() or "localhost",
+                    "--db-port", self.db_port_var.get() or "3306",
+                    "--db-user", self.db_user_var.get() or "root",
+                    "--db-name", self.db_name_var.get() or "bms",
+                    "--db-password", self.db_password_var.get() or ""
+                ]
+                
+                # إعداد متغيرات البيئة
+                env = os.environ.copy()
+                env['PYTHONIOENCODING'] = 'utf-8'
+                env['PYTHONUTF8'] = '1'
+                
+                # التحقق من وجود الكتاب
+                check_result = subprocess.run(
+                    check_command,
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    cwd=current_dir,
+                    env=env,
+                    timeout=30  # 30 ثانية كافية للتحقق
+                )
+                
+                # إذا كان الكتاب موجود (رمز الخروج = 0)، تخطي الاستخراج
+                if check_result.returncode == 0:
+                    self.root.after(0, lambda: self.log_message(f"⏭️ كتاب {book_id}: موجود مسبقًا في قاعدة البيانات - تم تخطيه"))
+                    
+                    # تحديث حالة الكتاب في واجهة المستخدم
+                    if hasattr(self, 'files_listbox') and hasattr(self, 'update_file_status_in_listbox'):
+                        try:
+                            # ابحث عن الكتاب في القائمة وحدّث حالته
+                            for i in range(self.files_listbox.size()):
+                                if str(book_id) in self.files_listbox.get(i):
+                                    self.root.after(0, lambda idx=i: self.update_file_status_in_listbox(idx, "⏭️ موجود مسبقًا"))
+                                    break
+                        except:
+                            pass
+                    
+                    return True  # اعتبر العملية نجحت لأننا تخطينا الكتاب الموجود
+                
+                # إذا لم يكن الكتاب موجود، استخرجه
+                self.root.after(0, lambda: self.log_message(f"🔍 كتاب {book_id}: غير موجود - بدء الاستخراج والرفع..."))
+                
+                # إعداد الأمر - نستخدم extract مع معاملات قاعدة البيانات لتفعيل الحفظ في قاعدة البيانات
+                command = [
+                    sys.executable,
+                    os.path.join(current_dir, "enhanced_runner.py"),
+                    "extract",
+                    str(book_id)
+                ]
+                
+                # إضافة معاملات قاعدة البيانات بشكل صريح (نجبر استخدام قاعدة البيانات)
+                command.extend([
+                    "--db-host", self.db_host_var.get() or "localhost",
+                    "--db-port", self.db_port_var.get() or "3306",
+                    "--db-user", self.db_user_var.get() or "root",
+                    "--db-name", self.db_name_var.get() or "bms",
+                    "--db-password", self.db_password_var.get() or ""
+                ])
+                
+            else:  # operation_type == "extract_only"
+                # وضع الاستخراج فقط - استخدم enhanced_shamela_scraper.py مباشرة
+                self.root.after(0, lambda: self.log_message(f"🔍 كتاب {book_id}: بدء الاستخراج فقط..."))
+                
+                # أولاً: استخراج عنوان الكتاب لاستخدامه في التسمية
+                self.root.after(0, lambda: self.log_message(f"📚 كتاب {book_id}: جاري استخراج العنوان للتسمية..."))
+                book_title = self.extract_book_title(book_id)
+                
+                if book_title:
+                    self.root.after(0, lambda: self.log_message(f"✅ كتاب {book_id}: تم استخراج العنوان بنجاح: '{book_title}'"))
+                else:
+                    self.root.after(0, lambda: self.log_message(f"⚠️ كتاب {book_id}: فشل في استخراج العنوان، سيتم استخدام التسمية الافتراضية"))
+                
+                command = [
+                    sys.executable,
+                    os.path.join(current_dir, "enhanced_shamela_scraper.py"),
+                    str(book_id),
+                    "--max-pages", "50"  # حد أدنى من الصفحات للاختبار السريع
+                ]
+                
+                # إضافة مجلد الإخراج مع التسمية المناسبة
+                output_filename = None
+                if book_title:
+                    # استخدام عنوان الكتاب في التسمية
+                    cleaned_title = self.clean_book_title_for_filename(book_title)
+                    output_filename = f"{cleaned_title}.json"
+                    self.root.after(0, lambda: self.log_message(f"📝 اسم الملف المبني على العنوان: {output_filename}"))
+                else:
+                    # استخدام التسمية القديمة كاحتياطي
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    output_filename = f"book_{book_id}_{timestamp}.json"
+                    self.root.after(0, lambda: self.log_message(f"⚠️ استخدام الاسم الافتراضي: {output_filename}"))
+                
+                # تحديد مسار الحفظ الكامل
+                if category_folder and os.path.exists(category_folder):
+                    output_path = os.path.join(category_folder, output_filename)
+                else:
+                    # إذا لم يتم تحديد مجلد أو فشل إنشاؤه، استخدم المجلد الأساسي
+                    output_path = os.path.join(base_output_dir, output_filename)
+                
+                command.extend(["--output", output_path])
+                self.root.after(0, lambda: self.log_message(f"� المسار الكامل للحفظ: {output_path}"))
             
             # إعداد متغيرات البيئة
             env = os.environ.copy()
             env['PYTHONIOENCODING'] = 'utf-8'
             env['PYTHONUTF8'] = '1'
-            
-            # التحقق من وجود الكتاب
-            check_result = subprocess.run(
-                check_command,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                cwd=current_dir,
-                env=env,
-                timeout=30  # 30 ثانية كافية للتحقق
-            )
-            
-            # إذا كان الكتاب موجود (رمز الخروج = 0)، تخطي الاستخراج
-            if check_result.returncode == 0:
-                self.root.after(0, lambda: self.log_message(f"⏭️ كتاب {book_id}: موجود مسبقًا في قاعدة البيانات - تم تخطيه"))
-                
-                # تحديث حالة الكتاب في واجهة المستخدم
-                if hasattr(self, 'files_listbox') and hasattr(self, 'update_file_status_in_listbox'):
-                    try:
-                        # ابحث عن الكتاب في القائمة وحدّث حالته
-                        for i in range(self.files_listbox.size()):
-                            if str(book_id) in self.files_listbox.get(i):
-                                self.root.after(0, lambda idx=i: self.update_file_status_in_listbox(idx, "⏭️ موجود مسبقًا"))
-                                break
-                    except:
-                        pass
-                
-                return True  # اعتبر العملية نجحت لأننا تخطينا الكتاب الموجود
-            
-            # إذا لم يكن الكتاب موجود، استخرجه
-            self.root.after(0, lambda: self.log_message(f"🔍 كتاب {book_id}: غير موجود - بدء الاستخراج..."))
-            
-            # إعداد الأمر - نستخدم extract مع معاملات قاعدة البيانات لتفعيل الحفظ في قاعدة البيانات
-            command = [
-                sys.executable,
-                os.path.join(current_dir, "enhanced_runner.py"),
-                "extract",
-                str(book_id)
-            ]
-            
-            # إضافة معاملات قاعدة البيانات بشكل صريح (نجبر استخدام قاعدة البيانات)
-            command.extend([
-                "--db-host", self.db_host_var.get() or "localhost",
-                "--db-port", self.db_port_var.get() or "3306",
-                "--db-user", self.db_user_var.get() or "root",
-                "--db-name", self.db_name_var.get() or "bms",
-                "--db-password", self.db_password_var.get() or ""
-            ])
             
             # تشغيل الأمر
             result = subprocess.run(
@@ -1946,14 +2228,14 @@ class EnhancedRunnerGUI:
             if result.stderr:
                 self.root.after(0, lambda: self.log_message(f"⚠️ كتاب {book_id}: {result.stderr.strip()}"))
             
-            return result.returncode == 0
+            return result.returncode == 0, book_title
             
         except subprocess.TimeoutExpired:
             self.root.after(0, lambda: self.log_message(f"⏰ انتهت مهلة استخراج الكتاب {book_id}"))
-            return False
+            return False, book_title
         except Exception as e:
             self.root.after(0, lambda: self.log_message(f"❌ خطأ في استخراج الكتاب {book_id}: {str(e)}"))
-            return False
+            return False, book_title
     
     def category_extraction_completed_with_stats(self, total_extracted):
         """إنهاء عملية استخراج الأقسام مع الإحصائيات"""
