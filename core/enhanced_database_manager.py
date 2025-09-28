@@ -273,18 +273,24 @@ class EnhancedShamelaDatabaseManager:
             if page.volume_number and page.volume_number in volume_ids:
                 volume_id = volume_ids[page.volume_number]
             
+            # استخراج البيانات بشكل آمن باستخدام getattr
+            internal_index = getattr(page, 'page_index_internal', None) or getattr(page, 'internal_index', None)
+            original_page_number = getattr(page, 'original_page_number', None)
+            word_count = getattr(page, 'word_count', None)
+            html_content = getattr(page, 'html_content', None)
+            printed_missing = getattr(page, 'printed_missing', False)
+            
             page_data = (
                 book_id,
                 page.page_number,
-                page.internal_index,
+                internal_index,
                 page.content,
-                page.html_content,
-                page.word_count,
+                html_content,
+                word_count,
                 volume_id,
                 None,  # chapter_id - سيتم تحديده لاحقاً
-                page.original_page_number,
-                page.page_index_internal,
-                page.printed_missing,
+                original_page_number,
+                printed_missing,
                 datetime.now(),
                 datetime.now()
             )
@@ -298,9 +304,9 @@ class EnhancedShamelaDatabaseManager:
         insert_query = f"""
             INSERT INTO {self.tables['pages']} 
             (book_id, page_number, internal_index, content, html_content, word_count, 
-             volume_id, chapter_id, original_page_number, page_index_internal, 
-             printed_missing, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             volume_id, chapter_id, original_page_number, printed_missing, 
+             created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         
         all_page_ids = []
@@ -431,10 +437,11 @@ class EnhancedShamelaDatabaseManager:
             ADD COLUMN IF NOT EXISTS visibility VARCHAR(20) DEFAULT 'public'
         """
         
-        # تحديث جدول الفصول لجعل volume_id يقبل NULL
+        # تحديث جدول الفصول لجعل volume_id يقبل NULL وتحديث نوع البيانات لحقل order
         alter_chapters_table = f"""
             ALTER TABLE {self.tables['chapters']} 
-            MODIFY COLUMN volume_id BIGINT UNSIGNED NULL
+            MODIFY COLUMN volume_id BIGINT UNSIGNED NULL,
+            MODIFY COLUMN `order` BIGINT DEFAULT 0
         """
         
         # تحديث جدول الصفحات لإضافة الحقول المفقودة
@@ -488,7 +495,7 @@ class EnhancedShamelaDatabaseManager:
                 chapter_number VARCHAR(20) NULL,
                 title VARCHAR(255) NOT NULL,
                 parent_id BIGINT UNSIGNED NULL,
-                order_number INT DEFAULT 0,
+                `order` BIGINT DEFAULT 0,
                 page_start INT NULL,
                 page_end INT NULL,
                 level INT DEFAULT 0,
@@ -496,7 +503,7 @@ class EnhancedShamelaDatabaseManager:
                 created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX chapters_book_id_index (book_id),
-                INDEX chapters_order_index (order_number),
+                INDEX chapters_order_index (`order`),
                 FOREIGN KEY (volume_id) REFERENCES {self.tables['volumes']}(id) ON DELETE CASCADE,
                 FOREIGN KEY (book_id) REFERENCES {self.tables['books']}(id) ON DELETE CASCADE,
                 FOREIGN KEY (parent_id) REFERENCES {self.tables['chapters']}(id) ON DELETE CASCADE
@@ -589,7 +596,7 @@ class EnhancedShamelaDatabaseManager:
         # تنفيذ تحديث جدول الفصول
         try:
             self.cursor.execute(alter_chapters_table)
-            logger.info("تم تحديث جدول الفصول لجعل volume_id يقبل NULL")
+            logger.info("تم تحديث جدول الفصول لجعل volume_id يقبل NULL وتحديث نوع البيانات لحقل order إلى BIGINT")
         except Error as e:
             logger.warning(f"تحذير في تحديث جدول الفصول: {e}")
         

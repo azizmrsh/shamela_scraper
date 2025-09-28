@@ -1099,6 +1099,7 @@ class EnhancedRunnerGUI:
         """العامل الرئيسي لرفع الملفات المتعددة"""
         successful_uploads = 0
         failed_uploads = 0
+        skipped_uploads = 0
         
         try:
             for i, file_path in enumerate(files_list, 1):
@@ -1112,7 +1113,7 @@ class EnhancedRunnerGUI:
                                self.shared_status_label.configure(text=f"📤 رفع {idx}/{total}: {name}"))
                 
                 # تحديث قائمة الملفات لإظهار الحالة
-                self.root.after(0, lambda idx=i-1, status="🔄 جاري الرفع": 
+                self.root.after(0, lambda idx=i-1, status="🔄 جاري الفحص": 
                                self.update_file_status_in_listbox(idx, status))
                 
                 try:
@@ -1125,8 +1126,33 @@ class EnhancedRunnerGUI:
                                        self.update_file_status_in_listbox(idx, "❌ غير موجود"))
                         continue
                     
+                    # فحص وجود الكتاب في قاعدة البيانات أولاً
+                    self.root.after(0, lambda idx=i-1: 
+                                   self.update_file_status_in_listbox(idx, "🔍 فحص الوجود"))
+                    
+                    check_result = self.check_book_exists_in_database_from_file(file_path)
+                    
+                    if check_result and check_result.get('success', False):
+                        if check_result.get('exists', False):
+                            # الكتاب موجود - تخطي
+                            skipped_uploads += 1
+                            shamela_id = check_result.get('shamela_id', 'غير معروف')
+                            self.root.after(0, lambda idx=i-1: 
+                                           self.update_file_status_in_listbox(idx, f"⏭️ موجود ({shamela_id})"))
+                            self.root.after(0, lambda name=file_name, sid=shamela_id: 
+                                           self.log_message(f"⏭️ تخطي {name}: shamela_id {sid} موجود مسبقاً"))
+                            continue
+                        else:
+                            # الكتاب غير موجود - ارفعه
+                            shamela_id = check_result.get('shamela_id', 'غير معروف')
+                            self.root.after(0, lambda name=file_name, sid=shamela_id: 
+                                           self.log_message(f"📤 رفع {name}: shamela_id {sid} غير موجود"))
+                    
                     # رفع الملف باستخدام enhanced_runner.py
-                    success = self.upload_single_file(file_path)
+                    self.root.after(0, lambda idx=i-1: 
+                                   self.update_file_status_in_listbox(idx, "📤 جاري الرفع"))
+                    
+                    success = self.upload_single_file_with_check(file_path)
                     
                     if success:
                         successful_uploads += 1
@@ -1149,23 +1175,91 @@ class EnhancedRunnerGUI:
                     self.root.after(0, lambda idx=i-1: 
                                    self.update_file_status_in_listbox(idx, "❌ خطأ"))
                     self.root.after(0, lambda name=file_name, err=str(e): 
-                                   self.log_message(f"❌ خطأ في رفع {name}: {err}"))
+                                   self.log_message(f"❌ خطأ في معالجة {name}: {err}"))
             
             # إنهاء العملية
-            self.root.after(0, lambda: self.multiple_upload_completed(successful_uploads, failed_uploads))
+            self.root.after(0, lambda: self.multiple_upload_completed(successful_uploads, failed_uploads, skipped_uploads))
             
         except Exception as e:
             error_msg = f"خطأ في رفع الملفات المتعددة: {str(e)}"
             self.root.after(0, lambda msg=error_msg: self.multiple_upload_error(msg))
-    
-    def upload_single_file(self, file_path):
-        """رفع ملف واحد إلى قاعدة البيانات"""
+
+    def check_book_exists_in_database_from_file(self, file_path):
+        """فحص وجود كتاب في قاعدة البيانات من خلال قراءة ملف JSON"""
         try:
-            # إعداد الأمر
+            # قراءة ملف JSON لاستخراج shamela_id
+            if file_path.endswith('.gz'):
+                import gzip
+                with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+                    book_data = json.load(f)
+            else:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    book_data = json.load(f)
+            
+            shamela_id = book_data.get('shamela_id')
+            if not shamela_id:
+                return {
+                    'success': False,
+                    'exists': False,
+                    'shamela_id': None,
+                    'error': 'لم يتم العثور على shamela_id في ملف JSON'
+                }
+            
+            # استخدام أمر check من enhanced_runner.py
+            check_command = [
+                sys.executable,
+                os.path.join(current_dir, "enhanced_runner.py"),
+                "check",
+                str(shamela_id),
+                "--db-host", self.db_host_var.get() or "localhost",
+                "--db-port", self.db_port_var.get() or "3306",
+                "--db-user", self.db_user_var.get() or "root",
+                "--db-name", self.db_name_var.get() or "bms",
+                "--db-password", self.db_password_var.get() or ""
+            ]
+            
+            # إعداد متغيرات البيئة
+            env = os.environ.copy()
+            env['PYTHONIOENCODING'] = 'utf-8'
+            env['PYTHONUTF8'] = '1'
+            
+            # تشغيل أمر الفحص
+            result = subprocess.run(
+                check_command,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                cwd=current_dir,
+                env=env,
+                timeout=30  # 30 ثانية كافية للفحص
+            )
+            
+            # رمز الخروج 0 يعني موجود، رمز الخروج 1 يعني غير موجود
+            exists = (result.returncode == 0)
+            
+            return {
+                'success': True,
+                'exists': exists,
+                'shamela_id': str(shamela_id)
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'exists': False,
+                'shamela_id': None,
+                'error': str(e)
+            }
+
+    def upload_single_file_with_check(self, file_path):
+        """رفع ملف واحد إلى قاعدة البيانات مع فحص الوجود"""
+        try:
+            # إعداد الأمر - استخدام save-db-check بدلاً من save-db
             command = [
                 sys.executable,
                 os.path.join(current_dir, "enhanced_runner.py"),
-                "save-db",
+                "save-db-check",  # الأمر الجديد الذي يفحص الوجود
                 file_path,
                 "--db-host", self.db_host_var.get(),
                 "--db-port", self.db_port_var.get(),
@@ -1197,7 +1291,47 @@ class EnhancedRunnerGUI:
             return False
         except Exception:
             return False
-    
+
+    def upload_single_file(self, file_path):
+        """رفع ملف واحد إلى قاعدة البيانات"""
+        try:
+            # إعداد الأمر - استخدام save-db-check بدلاً من save-db
+            command = [
+                sys.executable,
+                os.path.join(current_dir, "enhanced_runner.py"),
+                "save-db-check",  # الأمر الجديد الذي يفحص الوجود
+                file_path,
+                "--db-host", self.db_host_var.get(),
+                "--db-port", self.db_port_var.get(),
+                "--db-user", self.db_user_var.get(),
+                "--db-name", self.db_name_var.get(),
+                "--db-password", self.db_password_var.get()
+            ]
+            
+            # إعداد متغيرات البيئة
+            env = os.environ.copy()
+            env['PYTHONIOENCODING'] = 'utf-8'
+            env['PYTHONUTF8'] = '1'
+            
+            # تشغيل الأمر
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                cwd=current_dir,
+                env=env,
+                timeout=3600  # 60 دقيقة timeout
+            )
+            
+            return result.returncode == 0
+            
+        except subprocess.TimeoutExpired:
+            return False
+        except Exception:
+            return False
+
     def update_file_status_in_listbox(self, index, status):
         """تحديث حالة ملف في قائمة الملفات"""
         try:
@@ -1211,30 +1345,34 @@ class EnhancedRunnerGUI:
                 self.files_listbox.insert(index, new_text)
         except Exception:
             pass  # تجاهل أخطاء التحديث
-    
-    def multiple_upload_completed(self, successful, failed):
+
+    def multiple_upload_completed(self, successful, failed, skipped=0):
         """إنهاء عملية رفع الملفات المتعددة"""
         self.is_running = False
         self.upload_multiple_btn.configure(state=tk.NORMAL)
         self.scan_files_btn.configure(state=tk.NORMAL)
         self.shared_progress_bar.stop()
-        self.shared_status_label.configure(text=f"✅ انتهى الرفع - {successful} نجح، {failed} فشل")
+        self.shared_status_label.configure(text=f"✅ انتهى الرفع - {successful} نجح، {skipped} تخطي، {failed} فشل")
         
         # عرض تقرير مفصل
-        total = successful + failed
+        total = successful + failed + skipped
         success_rate = (successful / total * 100) if total > 0 else 0
         
         report = f"تم إنهاء رفع الملفات المتعددة\n\n"
         report += f"إجمالي الملفات: {total}\n"
         report += f"نجح: {successful} ملف\n"
+        report += f"تم تخطي: {skipped} ملف (موجود مسبقاً)\n"
         report += f"فشل: {failed} ملف\n"
         report += f"معدل النجاح: {success_rate:.1f}%"
+        
+        if skipped > 0:
+            report += f"\n\n💡 تم تخطي {skipped} ملف لأن الكتب موجودة مسبقاً في قاعدة البيانات"
         
         messagebox.showinfo("تم الإنهاء", report)
         
         # تسجيل الإحصائيات النهائية
-        self.log_message(f"📊 إحصائيات الرفع المتعدد: {successful} نجح، {failed} فشل من أصل {total}")
-    
+        self.log_message(f"📊 إحصائيات الرفع المتعدد: {successful} نجح، {skipped} تخطي، {failed} فشل من أصل {total}")
+
     def multiple_upload_error(self, error_msg):
         """معالجة خطأ في رفع الملفات المتعددة"""
         self.is_running = False
@@ -1245,7 +1383,7 @@ class EnhancedRunnerGUI:
         
         self.log_message(error_msg)
         messagebox.showerror("خطأ", error_msg)
-    
+
     def start_extraction(self):
         """بدء عملية الاستخراج"""
         # التحقق من صحة البيانات
@@ -1277,7 +1415,7 @@ class EnhancedRunnerGUI:
         # بدء مراقبة التقدم
         self.start_time = time.time()
         self.monitor_progress()
-    
+
     def build_extraction_command(self):
         """بناء أمر الاستخراج"""
         command = ["python", "enhanced_runner.py", "extract", self.book_id_var.get().strip()]
@@ -1300,7 +1438,7 @@ class EnhancedRunnerGUI:
             ])
         
         return command
-    
+
     def run_extraction(self, command):
         """تشغيل عملية الاستخراج"""
         try:
@@ -2248,7 +2386,7 @@ class EnhancedRunnerGUI:
         messagebox.showinfo("تم الإنهاء", f"تم إنهاء عملية استخراج الأقسام بنجاح\n\nإجمالي الكتب المستخرجة: {total_extracted}")
         
         # تسجيل الإحصائيات النهائية
-        self.log_message(f"📊 إحصائيات نهائية: تم استخراج {total_extracted} كتاب بنجاح")
+        self.log_message(f"📊 إحصائيات استخراج الأقسام: {total_extracted} كتاب")
     
     def add_book_to_list(self, book_id, title, status):
         """إضافة كتاب لقائمة الكتب"""
@@ -2283,7 +2421,7 @@ class EnhancedRunnerGUI:
         self.start_extraction_btn.configure(state=tk.NORMAL)
         self.stop_category_btn.configure(state=tk.DISABLED)
         self.shared_progress_bar.stop()
-        self.shared_status_label.configure(text="❌ خطأ في استخراج الأقسام")
+        self.shared_status_label.configure(text="❌ فشل استخراج الأقسام")
         
         self.log_message(error_msg)
         messagebox.showerror("خطأ", error_msg)

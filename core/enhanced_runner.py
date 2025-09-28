@@ -256,6 +256,101 @@ def check_book_in_database(book_id: str, db_config: dict) -> dict:
             'error': str(e)
         }
 
+def check_book_exists_in_database(json_path: str, db_config: dict) -> dict:
+    """
+    التحقق من وجود كتاب في قاعدة البيانات عبر قراءة shamela_id من ملف JSON
+    
+    Args:
+        json_path: مسار ملف JSON
+        db_config: إعدادات قاعدة البيانات
+        
+    Returns:
+        dict: نتيجة التحقق مع مفتاح exists وshamela_id
+    """
+    try:
+        # قراءة ملف JSON لاستخراج shamela_id
+        if json_path.endswith('.gz'):
+            import gzip
+            with gzip.open(json_path, 'rt', encoding='utf-8') as f:
+                book_data = json.load(f)
+        else:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                book_data = json.load(f)
+        
+        shamela_id = book_data.get('shamela_id')
+        if not shamela_id:
+            return {
+                'success': False,
+                'exists': False,
+                'shamela_id': None,
+                'error': 'لم يتم العثور على shamela_id في ملف JSON'
+            }
+        
+        # التحقق من وجود الكتاب في قاعدة البيانات
+        with EnhancedShamelaDatabaseManager(db_config) as db:
+            exists = db.check_book_exists(str(shamela_id))
+        
+        return {
+            'success': True,
+            'exists': exists,
+            'shamela_id': str(shamela_id),
+            'json_path': json_path
+        }
+        
+    except Exception as e:
+        logger.error(f"فشل في التحقق من وجود الكتاب في {json_path}: {e}")
+        return {
+            'success': False,
+            'exists': False,
+            'shamela_id': None,
+            'json_path': json_path,
+            'error': str(e)
+        }
+
+def save_to_database_with_check(json_path: str, db_config: dict, config: PerformanceConfig = None, skip_existing: bool = True) -> dict:
+    """
+    حفظ كتاب في قاعدة البيانات مع فحص الوجود المسبق
+    
+    Args:
+        json_path: مسار ملف JSON
+        db_config: إعدادات قاعدة البيانات
+        config: إعدادات الأداء
+        skip_existing: تخطي الكتب الموجودة (افتراضي: True)
+    """
+    if config is None:
+        config = PerformanceConfig()
+    
+    print(f"🔍 فحص وجود الكتاب: {os.path.basename(json_path)}")
+    
+    # فحص وجود الكتاب أولاً
+    check_result = check_book_exists_in_database(json_path, db_config)
+    
+    if not check_result['success']:
+        return {
+            'success': False,
+            'skipped': False,
+            'error': check_result.get('error', 'خطأ في فحص الوجود')
+        }
+    
+    if check_result['exists'] and skip_existing:
+        print(f"⏭️ تخطي الكتاب: shamela_id {check_result['shamela_id']} موجود مسبقاً")
+        return {
+            'success': True,
+            'skipped': True,
+            'shamela_id': check_result['shamela_id'],
+            'message': 'الكتاب موجود مسبقاً في قاعدة البيانات'
+        }
+    
+    # إذا لم يكن موجود، قم بحفظه
+    print(f"📤 بدء رفع الكتاب: shamela_id {check_result['shamela_id']}")
+    result = save_to_database(json_path, db_config, config)
+    
+    if result['success']:
+        result['shamela_id'] = check_result['shamela_id']
+        result['skipped'] = False
+    
+    return result
+
 def extract_and_save_book(book_id: str, max_pages: int = None, 
                          db_config: dict = None, output_dir: str = None) -> dict:
     """
@@ -387,13 +482,16 @@ def main():
 3. حفظ ملف JSON موجود في قاعدة البيانات:
    python enhanced_runner.py save-db enhanced_book_12106.json --db-host localhost --db-user root --db-password secret --db-name bms
 
-4. إنشاء جداول قاعدة البيانات:
+4. حفظ ملف JSON مع فحص الوجود:
+   python enhanced_runner.py save-db-check enhanced_book_12106.json --db-host localhost --db-user root --db-password secret --db-name bms
+
+5. إنشاء جداول قاعدة البيانات:
    python enhanced_runner.py create-tables --db-host localhost --db-user root --db-password secret --db-name bms
 
-5. عرض إحصائيات كتاب من قاعدة البيانات:
+6. عرض إحصائيات كتاب من قاعدة البيانات:
    python enhanced_runner.py stats 123 --db-host localhost --db-user root --db-password secret --db-name bms
 
-6. التحقق من وجود كتاب في قاعدة البيانات:
+7. التحقق من وجود كتاب في قاعدة البيانات:
    python enhanced_runner.py check 12106 --db-host localhost --db-user root --db-password secret --db-name bms
         """
     )
@@ -410,6 +508,11 @@ def main():
     save_parser = subparsers.add_parser('save-db', help='حفظ ملف JSON في قاعدة البيانات')
     save_parser.add_argument('json_file', help='مسار ملف JSON')
     
+    # أمر الحفظ مع فحص الوجود
+    save_check_parser = subparsers.add_parser('save-db-check', help='حفظ ملف JSON في قاعدة البيانات مع فحص الوجود')
+    save_check_parser.add_argument('json_file', help='مسار ملف JSON')
+    save_check_parser.add_argument('--force', action='store_true', help='فرض الحفظ حتى لو كان موجوداً')
+    
     # أمر إنشاء الجداول
     tables_parser = subparsers.add_parser('create-tables', help='إنشاء جداول قاعدة البيانات')
     
@@ -422,7 +525,7 @@ def main():
     check_parser.add_argument('book_id', help='معرف الكتاب في المكتبة الشاملة')
     
     # إعدادات قاعدة البيانات (مشتركة)
-    for subparser in [extract_parser, save_parser, tables_parser, stats_parser, check_parser]:
+    for subparser in [extract_parser, save_parser, save_check_parser, tables_parser, stats_parser, check_parser]:
         subparser.add_argument('--db-host', default='localhost', help='عنوان قاعدة البيانات')
         subparser.add_argument('--db-port', type=int, default=3306, help='منفذ قاعدة البيانات')
         subparser.add_argument('--db-user', default='root', help='اسم المستخدم')
@@ -482,6 +585,24 @@ def main():
             
             if not result['success']:
                 sys.exit(1)
+        
+        elif args.command == 'save-db-check':
+            if not db_config:
+                print("❌ خطأ: يجب تحديد إعدادات قاعدة البيانات")
+                sys.exit(1)
+            
+            if not os.path.exists(args.json_file):
+                print(f"❌ خطأ: الملف غير موجود: {args.json_file}")
+                sys.exit(1)
+            
+            skip_existing = not args.force  # إذا تم تحديد --force، لا تتخط الموجود
+            result = save_to_database_with_check(args.json_file, db_config, skip_existing=skip_existing)
+            
+            if not result['success']:
+                sys.exit(1)
+            elif result.get('skipped', False):
+                print("⏭️ تم تخطي الكتاب لأنه موجود مسبقاً")
+                sys.exit(0)  # خروج نجح للكتب المتخطاة
         
         elif args.command == 'create-tables':
             if not db_config:
